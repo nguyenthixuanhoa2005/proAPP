@@ -2,7 +2,7 @@ import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 
-const NAV_ITEMS = [
+const USER_NAV_ITEMS = [
   {
     key: 'home',
     label: 'Trang chủ',
@@ -12,7 +12,6 @@ const NAV_ITEMS = [
     key: 'suggest',
     label: 'Gợi ý',
     icon: { family: MaterialCommunityIcons, name: 'creation-outline' },
-    featured: true,
   },
   {
     key: 'menu',
@@ -28,6 +27,34 @@ const NAV_ITEMS = [
     key: 'profile',
     label: 'Tôi',
     icon: { family: Feather, name: 'user' },
+  },
+];
+
+const ADMIN_NAV_ITEMS = [
+  {
+    key: 'overview',
+    label: 'Tổng quan',
+    icon: { family: Feather, name: 'home' },
+  },
+  {
+    key: 'users',
+    label: 'Người dùng',
+    icon: { family: Feather, name: 'users' },
+  },
+  {
+    key: 'recipes',
+    label: 'Công thức',
+    icon: { family: Ionicons, name: 'book-outline' },
+  },
+  {
+    key: 'ingredients',
+    label: 'Nguyên liệu',
+    icon: { family: MaterialCommunityIcons, name: 'cube-outline' },
+  },
+  {
+    key: 'transactions',
+    label: 'Giao dịch',
+    icon: { family: Feather, name: 'bar-chart-2' },
   },
 ];
 
@@ -59,14 +86,16 @@ export function AppHeader({ onLoginPress, onSignupPress }) {
   );
 }
 
-export function AppBottomNav({ activeKey = 'suggest', onTabPress }) {
+export function AppBottomNav({ activeKey = 'suggest', onTabPress, role = 'user' }) {
+  const navItems = role === 'admin' ? ADMIN_NAV_ITEMS : USER_NAV_ITEMS;
+
   return (
     <View style={styles.bottomNavWrap}>
       <View style={styles.bottomNavBar}>
-        {NAV_ITEMS.map((item) => {
+        {navItems.map((item) => {
           const active = item.key === activeKey;
-          const color = active ? '#f97316' : '#8d94a3';
-          const iconSize = item.featured ? 28 : 24;
+          const iconColor = active ? '#ffffff' : '#4b5563';
+          const iconSize = 23;
 
           return (
             <Pressable
@@ -74,16 +103,10 @@ export function AppBottomNav({ activeKey = 'suggest', onTabPress }) {
               onPress={() => onTabPress?.(item.key)}
               style={styles.navItem}
             >
-              {item.featured ? (
-                <View style={styles.featuredNavOuter}>
-                  <View style={[styles.featuredNavInner, active && styles.featuredNavInnerActive]}>
-                    <NavIcon {...item.icon} size={iconSize} color="#ffffff" />
-                  </View>
-                </View>
-              ) : (
-                <NavIcon {...item.icon} size={iconSize} color={color} />
-              )}
-              <Text style={[styles.navLabel, active && styles.navLabelActive]}>{item.label}</Text>
+              <View style={[styles.navIconBubble, active && styles.navIconBubbleActive]}>
+                <NavIcon {...item.icon} size={iconSize} color={iconColor} />
+              </View>
+              <Text numberOfLines={2} style={[styles.navLabel, active && styles.navLabelActive]}>{item.label}</Text>
             </Pressable>
           );
         })}
@@ -109,12 +132,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 12,
+    gap: 8,
   },
   brandWrap: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 8,
+    flexShrink: 1,
   },
   brandIcon: {
     width: 42,
@@ -130,30 +154,31 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   brandText: {
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: '700',
     color: '#f97316',
   },
   headerActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 6,
+    marginLeft: 8,
   },
   ghostButton: {
-    minHeight: 42,
-    paddingHorizontal: 14,
+    minHeight: 36,
+    paddingHorizontal: 8,
     alignItems: 'center',
     justifyContent: 'center',
   },
   ghostButtonText: {
-    fontSize: 17,
+    fontSize: 14,
     fontWeight: '500',
     color: '#374151',
   },
   primaryButton: {
-    minHeight: 42,
-    paddingHorizontal: 16,
-    borderRadius: 12,
+    minHeight: 36,
+    paddingHorizontal: 10,
+    borderRadius: 10,
     backgroundColor: '#f97316',
     alignItems: 'center',
     justifyContent: 'center',
@@ -165,71 +190,56 @@ const styles = StyleSheet.create({
   },
   primaryButtonText: {
     color: '#ffffff',
-    fontSize: 17,
+    fontSize: 14,
     fontWeight: '700',
   },
   bottomNavWrap: {
     width: '100%',
-    backgroundColor: '#fffaf5',
+    backgroundColor: '#ffffff',
     borderTopWidth: 1,
-    borderTopColor: '#f3e1cf',
-    paddingTop: 8,
-    paddingBottom: 12,
-    paddingHorizontal: 12,
+    borderTopColor: '#e5e7eb',
+    paddingTop: 4,
+    paddingBottom: 6,
+    paddingHorizontal: 6,
   },
   bottomNavBar: {
     width: '100%',
     maxWidth: 980,
     alignSelf: 'center',
-    minHeight: 72,
+    minHeight: 76,
     flexDirection: 'row',
-    alignItems: 'flex-end',
+    alignItems: 'center',
     justifyContent: 'space-between',
     backgroundColor: '#ffffff',
-    borderRadius: 26,
-    paddingHorizontal: 10,
-    paddingTop: 4,
-    paddingBottom: 6,
-    shadowColor: '#8b5e34',
-    shadowOpacity: 0.08,
-    shadowOffset: { width: 0, height: -2 },
-    shadowRadius: 12,
-    elevation: 4,
+    borderRadius: 0,
+    paddingHorizontal: 4,
+    paddingTop: 2,
+    paddingBottom: 2,
   },
   navItem: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-  },
-  featuredNavOuter: {
-    marginTop: -28,
-    marginBottom: 6,
-    padding: 3,
-    borderRadius: 24,
-    backgroundColor: '#fff4eb',
-  },
-  featuredNavInner: {
-    width: 54,
-    height: 54,
-    borderRadius: 18,
-    backgroundColor: '#fb923c',
+    minWidth: 0,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#f97316',
-    shadowOpacity: 0.22,
-    shadowOffset: { width: 0, height: 8 },
-    shadowRadius: 14,
-    elevation: 5,
+    paddingHorizontal: 2,
   },
-  featuredNavInnerActive: {
+  navIconBubble: {
+    width: 52,
+    height: 42,
+    borderRadius: 14,
+    backgroundColor: 'transparent',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  navIconBubbleActive: {
     backgroundColor: '#f97316',
   },
   navLabel: {
-    marginTop: 2,
-    fontSize: 12,
-    lineHeight: 16,
+    marginTop: 4,
+    fontSize: 11,
+    lineHeight: 13,
     fontWeight: '600',
-    color: '#8d94a3',
+    color: '#4b5563',
     textAlign: 'center',
   },
   navLabelActive: {
