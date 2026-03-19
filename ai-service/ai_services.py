@@ -1,6 +1,8 @@
 from flask import Flask, request, jsonify
 import speech_recognition as sr
 import os
+import re
+import unicodedata
 from ultralytics import YOLO
 from pydub import AudioSegment 
 
@@ -16,38 +18,84 @@ import time
 # --- CẤU HÌNH DANH SÁCH NGUYÊN LIỆU (WHITELIST) ---
 # Map này vẫn cần cho xử lý HÌNH ẢNH (ánh xạ tên class YOLO tiếng Anh -> tiếng Việt)
 VALID_INGREDIENTS_MAP = {
-    # --- Hoa quả ---
-    "banana": "chuối",
-    "apple": "táo",
-    "orange": "cam",
-    
-    # --- Rau củ ---
-    "broccoli": "súp lơ",
-    "carrot": "cà rốt",
-    "potted plant": "rau xanh", 
-    
-    # --- Thực phẩm chế biến sẵn ---
-    "sandwich": "bánh mì kẹp",
-    "hot dog": "xúc xích",
-    "pizza": "bánh pizza",
-    "donut": "bánh donut",
-    "cake": "bánh ngọt",
-    
-    # --- Thịt (Model mặc định không có class 'meat', phải map từ động vật) ---
-    "bird": "thịt gà",  # YOLO nhận gà sống/gà quay là bird
-    "fresh": "thịt lợn", 
-    "frozen": "thịt lợn",
-    "racid" : "thịt lợn", # 
-    "sheep": "thịt cừu",
-    "cow": "thịt",
-    "fish": "cá"
+    # Map theo dữ liệu ingredient mới trong DB
+    "banana": "Chuối",
+    "apple": "Táo",
+    "orange": "Cam",
+    "broccoli": "Súp lơ xanh",
+    "carrot": "Cà rốt",
+    "potted plant": "Rau muống",
+    "sandwich": "Bánh mì",
+    "bird": "Thịt gà ức",
+    "cow": "Thịt bò nạc",
+    "fish": "Cá",
+}
 
-    # dữ liệu train mới
-    
+# Alias giúp match giọng nói gần đúng với tên chuẩn trong DB.
+VOICE_INGREDIENT_ALIASES = {
+    "Thịt gà ức": ["thịt gà", "ức gà", "gà"],
+    "Thịt bò nạc": ["thịt bò", "bò nạc", "bò"],
+    "Thịt heo ba chỉ": ["thịt heo", "thịt lợn", "ba chỉ"],
+    "Súp lơ xanh": ["súp lơ", "bông cải", "bông cải xanh"],
+    "Đậu phụ": ["đậu hũ", "tàu hũ"],
+    "Hành lá": ["hành hoa"],
+    "Cải thìa": ["cải chíp"],
+    "Bánh mì": ["bánh mỳ"],
+    "Ớt": ["ớt tươi"],
 }
 
 # --- TẢI NGUYÊN LIỆU ĐỘNG TỪ BACKEND NODE.JS ---
-INGREDIENT_WHITELIST = set()
+def build_fallback_whitelist():
+    fallback = set(VALID_INGREDIENTS_MAP.values())
+    fallback.update(VOICE_INGREDIENT_ALIASES.keys())
+    return {item.strip() for item in fallback if str(item).strip()}
+
+
+INGREDIENT_WHITELIST = build_fallback_whitelist()
+VOICE_ALIAS_TO_CANONICAL = {}
+VOICE_MATCHERS = []
+
+
+def normalize_text(text):
+    if not text:
+        return ""
+
+    lowered = str(text).strip().lower()
+    no_accent = unicodedata.normalize("NFD", lowered)
+    no_accent = "".join(ch for ch in no_accent if unicodedata.category(ch) != "Mn")
+    only_text = re.sub(r"[^a-z0-9\s]", " ", no_accent)
+    return re.sub(r"\s+", " ", only_text).strip()
+
+
+def rebuild_voice_matchers():
+    global VOICE_ALIAS_TO_CANONICAL
+    global VOICE_MATCHERS
+
+    alias_map = {}
+
+    for ingredient in INGREDIENT_WHITELIST:
+        norm_name = normalize_text(ingredient)
+        if norm_name:
+            alias_map[norm_name] = ingredient
+
+    for canonical_name, aliases in VOICE_INGREDIENT_ALIASES.items():
+        if canonical_name not in INGREDIENT_WHITELIST:
+            continue
+
+        norm_canonical = normalize_text(canonical_name)
+        if norm_canonical:
+            alias_map[norm_canonical] = canonical_name
+
+        for alias in aliases:
+            norm_alias = normalize_text(alias)
+            if norm_alias:
+                alias_map[norm_alias] = canonical_name
+
+    VOICE_ALIAS_TO_CANONICAL = alias_map
+    VOICE_MATCHERS = [
+        (re.compile(rf"(^|\s){re.escape(alias)}(?=\s|$)"), canonical)
+        for alias, canonical in sorted(alias_map.items(), key=lambda item: len(item[0]), reverse=True)
+    ]
 
 def load_ingredients_from_backend():
     global INGREDIENT_WHITELIST
@@ -60,11 +108,25 @@ def load_ingredients_from_backend():
             response = requests.get('http://localhost:3000/api/internal/all-ingredients', timeout=10)
             if response.status_code == 200:
                 db_ingredients = response.json()
-                INGREDIENT_WHITELIST.update([ing.lower() for ing in db_ingredients])
+                INGREDIENT_WHITELIST.clear()
+
+                if isinstance(db_ingredients, list):
+                    for item in db_ingredients:
+                        if isinstance(item, str):
+                            cleaned = item.strip()
+                            if cleaned:
+                                INGREDIENT_WHITELIST.add(cleaned)
+                        elif isinstance(item, dict) and item.get("name"):
+                            cleaned = str(item.get("name")).strip()
+                            if cleaned:
+                                INGREDIENT_WHITELIST.add(cleaned)
+
                 print(f"✅ Đã tải thành công {len(db_ingredients)} nguyên liệu từ DB.")
                 # Thêm cả các nguyên liệu từ map ảnh để đảm bảo đồng bộ
-                hardcoded_ingredients = {name_vi.lower() for name_vi in VALID_INGREDIENTS_MAP.values()}
+                hardcoded_ingredients = set(VALID_INGREDIENTS_MAP.values())
                 INGREDIENT_WHITELIST.update(hardcoded_ingredients)
+
+                rebuild_voice_matchers()
                 print(f"✅ Tổng số nguyên liệu trong whitelist: {len(INGREDIENT_WHITELIST)}")
                 return # Thoát khỏi hàm nếu thành công
             else:
@@ -74,7 +136,13 @@ def load_ingredients_from_backend():
         
         time.sleep(retry_delay)
     
-    print("❌ Không thể tải danh sách nguyên liệu sau nhiều lần thử. Dịch vụ giọng nói có thể không chính xác.")
+    fallback = build_fallback_whitelist()
+    INGREDIENT_WHITELIST.update(fallback)
+    rebuild_voice_matchers()
+    print(
+        f"❌ Không thể tải danh sách nguyên liệu sau nhiều lần thử. "
+        f"Đã dùng fallback cục bộ ({len(INGREDIENT_WHITELIST)} nguyên liệu)."
+    )
 
 # --- KẾT THÚC TẢI ĐỘNG ---
 
@@ -82,6 +150,9 @@ def load_ingredients_from_backend():
 print("Đang tải model YOLOv8...")
 model = YOLO('yolov8n.pt') 
 print("Model đã sẵn sàng!")
+
+# Khởi tạo matcher tối thiểu trước, tránh whitelist rỗng khi backend chưa sẵn sàng.
+rebuild_voice_matchers()
 
 # Tải danh sách nguyên liệu ngay khi khởi động
 load_ingredients_from_backend()
@@ -111,6 +182,9 @@ def detect_voice():
     wav_path = os.path.join(UPLOAD_FOLDER, "converted_audio.wav")
     recognizer = sr.Recognizer()
     
+    text = ""
+    keywords = []
+
     try:
         if not convert_to_wav(original_path, wav_path):
              return jsonify({"error": "Lỗi định dạng âm thanh server."}), 500
@@ -118,43 +192,39 @@ def detect_voice():
         with sr.AudioFile(wav_path) as source:
             audio_data = recognizer.record(source)
             try:
-                text = recognizer.recognize_google(audio_data, language="vi-VN").lower()
+                text = recognizer.recognize_google(audio_data, language="vi-VN")
             except sr.UnknownValueError:
                 text = ""
             
             # --- LOGIC MỚI: DÙNG WHITELIST ĐỘNG ---
             found_ingredients = set()
-            if INGREDIENT_WHITELIST:
-                 for ingredient in INGREDIENT_WHITELIST:
-                    # Kiểm tra chính xác từ, tránh trường hợp "bò" khớp với "thịt bò"
-                    # Bằng cách thêm khoảng trắng xung quanh
-                    if f" {ingredient} " in f" {text} ":
-                        found_ingredients.add(ingredient)
-                    # Kiểm tra ở đầu câu
-                    elif text.startswith(ingredient + " "):
-                        found_ingredients.add(ingredient)
-                    # Kiểm tra ở cuối câu
-                    elif text.endswith(" " + ingredient):
-                        found_ingredients.add(ingredient)
-                    # Kiểm tra trường hợp câu chỉ có đúng 1 từ là nguyên liệu
-                    elif text == ingredient:
-                        found_ingredients.add(ingredient)
+            if VOICE_MATCHERS:
+                normalized_text = normalize_text(text)
+                for pattern, canonical_name in VOICE_MATCHERS:
+                    if pattern.search(normalized_text):
+                        found_ingredients.add(canonical_name)
 
-            
-            keywords = list(found_ingredients)
-        
-        # Cleanup
-        if os.path.exists(original_path): os.remove(original_path)
-        if os.path.exists(wav_path): os.remove(wav_path)
+            keywords = sorted(found_ingredients)
 
         return jsonify({
-            "raw_text": text,
+            "raw_text": str(text).lower(),
             "detected_ingredients": keywords, 
             "status": "success"
         })
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+    finally:
+        if os.path.exists(original_path):
+            try:
+                os.remove(original_path)
+            except OSError:
+                pass
+        if os.path.exists(wav_path):
+            try:
+                os.remove(wav_path)
+            except OSError:
+                pass
 
 # --- API 2: XỬ LÝ ẢNH (ĐÃ LỌC SẠCH SẼ) ---
 @app.route('/detect/image', methods=['POST'])
@@ -179,18 +249,24 @@ def detect_image():
         for result in results:
             for box in result.boxes:
                 cls_id = int(box.cls[0])
-                name_en = model.names[cls_id] # Tên gốc tiếng Anh
+                name_en = model.names[cls_id] 
                 
                 # --- LOGIC LỌC NGHIÊM NGẶT (WHITELIST) ---
                 # Chỉ lấy nếu có trong danh sách đồ ăn
                 if name_en in VALID_INGREDIENTS_MAP:
                     name_vi = VALID_INGREDIENTS_MAP[name_en]
-                    detected_ingredients.add(name_vi)
+                    if name_vi in INGREDIENT_WHITELIST:
+                        detected_ingredients.add(name_vi)
+                    else:
+                        normalized = normalize_text(name_vi)
+                        canonical = VOICE_ALIAS_TO_CANONICAL.get(normalized)
+                        if canonical:
+                            detected_ingredients.add(canonical)
+                        else:
+                            ignored_items.append(name_en)
                 else:
                     # Ghi lại những thứ bị loại (người, xe, dao...) để debug
                     ignored_items.append(name_en)
-
-        if os.path.exists(filepath): os.remove(filepath)
 
         return jsonify({
             "status": "success",
@@ -199,13 +275,15 @@ def detect_image():
         })
 
     except Exception as e:
-            # Code xử lý lỗi chuẩn (đã sửa)
+        return jsonify({"error": str(e)}), 500
+    finally:
         if os.path.exists(filepath):
             try:
                 os.remove(filepath)
             except OSError:
                 pass
-        return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    ai_port = int(os.getenv('AI_SERVICE_PORT', '5000'))
+    ai_debug = os.getenv('AI_SERVICE_DEBUG', '0').strip() in ('1', 'true', 'True')
+    app.run(host='0.0.0.0', port=ai_port, debug=ai_debug, use_reloader=False)

@@ -124,6 +124,7 @@ create table ingredient (
 	type varchar (20) check (type in ('MEAT', 'VEGETABLE', 'SPICE', 'FRUIT', 'OTHER', 'STARCH')), -- CAI NAY DE LOC 
 	image_url varchar (500),
 	is_common BOOLEAN DEFAULT FALSE, -- cai nay de hien thi nguyen lieu pho bien
+	status varchar (20) check (status in ('ACTIVE', 'HIDDEN')) default 'ACTIVE', -- xoa mem nguyen lieu
 	keywords TEXT, -- luu cac tu dong nghia de search
 	create_at timestamp default current_timestamp
 );

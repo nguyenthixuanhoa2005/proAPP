@@ -40,5 +40,17 @@
     "email": "",
     "password": "123456",
     "expectedStatus": 400
+  },
+  {
+    "case": "login_missing_email_and_password",
+    "email": "",
+    "password": "",
+    "expectedStatus": 400
+  },
+  {
+    "case": "login_nonexistent_user",
+    "email": "helloxinchao@gmail.com",
+    "password": "1234567",
+    "expectedStatus": 401
   }
 ]

@@ -62,7 +62,18 @@ const NavIcon = ({ family: IconComponent, name, color, size }) => (
   <IconComponent name={name} size={size} color={color} />
 );
 
-export function AppHeader({ onLoginPress, onSignupPress }) {
+export function AppHeader({
+  onLoginPress,
+  onSignupPress,
+  isGuest = true,
+  onNotificationPress,
+  onAccountPress,
+  notificationCount = 3,
+}) {
+  const safeNotificationCount = Number.isFinite(Number(notificationCount))
+    ? Math.max(0, Number(notificationCount))
+    : 0;
+
   return (
     <View style={styles.headerWrap}>
       <View style={styles.headerBar}>
@@ -73,14 +84,31 @@ export function AppHeader({ onLoginPress, onSignupPress }) {
           <Text style={styles.brandText}>NutriChef</Text>
         </View>
 
-        <View style={styles.headerActions}>
-          <Pressable onPress={onLoginPress} style={styles.ghostButton}>
-            <Text style={styles.ghostButtonText}>Đăng nhập</Text>
-          </Pressable>
-          <Pressable onPress={onSignupPress} style={styles.primaryButton}>
-            <Text style={styles.primaryButtonText}>Đăng ký</Text>
-          </Pressable>
-        </View>
+        {isGuest ? (
+          <View style={styles.headerActions}>
+            <Pressable onPress={onLoginPress} style={styles.ghostButton}>
+              <Text style={styles.ghostButtonText}>Đăng nhập</Text>
+            </Pressable>
+            <Pressable onPress={onSignupPress} style={styles.primaryButton}>
+              <Text style={styles.primaryButtonText}>Đăng ký</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <View style={styles.authenticatedActions}>
+            <Pressable onPress={onNotificationPress} style={styles.bellWrap}>
+              <Feather name="bell" size={20} color="#4b5563" />
+              {safeNotificationCount > 0 ? (
+                <View style={styles.badgeDot}>
+                  <Text style={styles.badgeText}>{safeNotificationCount}</Text>
+                </View>
+              ) : null}
+            </Pressable>
+
+            <Pressable style={styles.avatarBubble} onPress={onAccountPress}>
+              <Feather name="user" size={18} color="#ffffff" />
+            </Pressable>
+          </View>
+        )}
       </View>
     </View>
   );
@@ -163,6 +191,48 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
     marginLeft: 8,
+  },
+  authenticatedActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginLeft: 8,
+  },
+  bellWrap: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#ffffff',
+    position: 'relative',
+  },
+  badgeDot: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#ef4444',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 3,
+  },
+  badgeText: {
+    color: '#ffffff',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  avatarBubble: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#f97316',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   ghostButton: {
     minHeight: 36,

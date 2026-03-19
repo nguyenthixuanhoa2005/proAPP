@@ -30,6 +30,7 @@ const REFRESH_TOKEN_KEY = 'auth.refreshToken';
 let memoryAccessToken = null;
 let memoryRefreshToken = null;
 let refreshInFlight = null;
+let persistAuthSession = true;
 
 const readStoredTokens = async () => {
 	if (memoryAccessToken && memoryRefreshToken) {
@@ -46,9 +47,18 @@ const readStoredTokens = async () => {
 	return { accessToken, refreshToken };
 };
 
-export const setAuthTokens = async ({ accessToken, refreshToken }) => {
+export const setAuthTokens = async ({ accessToken, refreshToken, persist = true }) => {
+	persistAuthSession = Boolean(persist);
 	memoryAccessToken = accessToken || null;
 	memoryRefreshToken = refreshToken || null;
+
+	if (!persistAuthSession) {
+		await Promise.all([
+			AsyncStorage.removeItem(ACCESS_TOKEN_KEY),
+			AsyncStorage.removeItem(REFRESH_TOKEN_KEY),
+		]);
+		return;
+	}
 
 	const tasks = [];
 	if (accessToken) {
@@ -69,6 +79,7 @@ export const setAuthTokens = async ({ accessToken, refreshToken }) => {
 export const clearAuthTokens = async () => {
 	memoryAccessToken = null;
 	memoryRefreshToken = null;
+	persistAuthSession = true;
 	await Promise.all([
 		AsyncStorage.removeItem(ACCESS_TOKEN_KEY),
 		AsyncStorage.removeItem(REFRESH_TOKEN_KEY),
@@ -127,6 +138,7 @@ const doRefreshToken = async () => {
 	await setAuthTokens({
 		accessToken: data.accessToken,
 		refreshToken: data.refreshToken,
+		persist: persistAuthSession,
 	});
 
 	return data;
@@ -167,11 +179,23 @@ export const request = async (path, options = {}) => {
 export const authRequest = async (path, options = {}) => {
 	const { accessToken } = await readStoredTokens();
 
+	// Kiểm tra nếu body là FormData (không thể retry)
+	const isFormData = options.body instanceof FormData;
+
 	const doCall = async (token) => {
-		const headers = {
-			Accept: 'application/json',
-			...(options.headers || {}),
-		};
+		const headers = { ...(options.headers || {}) };
+
+		// Nếu là FormData, xóa Content-Type và Accept headers
+		// Để fetch tự động set multipart/form-data với boundary
+		if (isFormData) {
+			delete headers['Content-Type'];
+			delete headers['content-type'];
+			delete headers.Accept;
+			delete headers.accept;
+		} else {
+			// Chỉ set Accept cho JSON requests
+			headers.Accept = 'application/json';
+		}
 
 		if (token) {
 			headers.Authorization = `Bearer ${token}`;
@@ -192,6 +216,12 @@ export const authRequest = async (path, options = {}) => {
 
 	let response = await doCall(accessToken);
 	if (response.status !== 401) {
+		return parseResponse(response);
+	}
+
+	// FormData không thể retry vì stream đã bị tiêu thụ
+	// Trả về lỗi 401 thay vì cố refresh token
+	if (isFormData) {
 		return parseResponse(response);
 	}
 

@@ -45,18 +45,33 @@ export default function LoginScreen({ onClose, onLoginSuccess }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loadingType, setLoadingType] = useState('');
+  const [rememberLogin, setRememberLogin] = useState(false);
 
   const authConfig = Constants.expoConfig?.extra?.auth || {};
   const googleConfig = authConfig.google || {};
-  const configuredGoogleRedirectUri = String(googleConfig.redirectUri || '').trim();
+  const configuredGoogleRedirectUri = String(googleConfig.redirectUri || '').trim().replace(/\/+$/, '');
   const expoOwner = Constants.expoConfig?.owner || '';
   const expoSlug = Constants.expoConfig?.slug || 'AppGoiY';
-  const projectNameForProxy = expoOwner ? `@${expoOwner}/${expoSlug}` : '';
-  const generatedGoogleRedirectUri = AuthSession.makeRedirectUri({
-    useProxy: true,
-    projectNameForProxy: projectNameForProxy || undefined,
-  });
-  const googleRedirectUri = configuredGoogleRedirectUri || generatedGoogleRedirectUri;
+  const appScheme = String(Constants.expoConfig?.scheme || 'appgoiy').trim() || 'appgoiy';
+  const isWeb = Platform.OS === 'web';
+  const isExpoGo = Constants.appOwnership === 'expo' || (!isWeb && Constants.executionEnvironment === 'storeClient');
+  const fallbackProxyRedirectUri = `https://auth.expo.io/@${expoOwner}/${expoSlug}`;
+
+  // Expo Go cần proxy URL của Expo; build/app local dùng deep link scheme.
+  const generatedRedirectUri = AuthSession.makeRedirectUri(
+    isExpoGo
+      ? { useProxy: true }
+      : {
+          scheme: appScheme,
+          path: 'oauth/google',
+        }
+  );
+
+  // Ưu tiên URI cấu hình sẵn cho Expo Go; Web/Standalone dùng generated URI (localhost hoặc scheme).
+  const googleRedirectUri = (isExpoGo && !isWeb)
+    ? (configuredGoogleRedirectUri || fallbackProxyRedirectUri)
+    : generatedRedirectUri;
+
   const resolvedGoogleClientId =
     googleConfig.expoClientId ||
     googleConfig.webClientId ||
@@ -90,6 +105,7 @@ export default function LoginScreen({ onClose, onLoginSuccess }) {
       const response = await loginWithEmail({
         email: email.trim().toLowerCase(),
         password,
+        rememberLogin,
       });
 
       if (typeof onLoginSuccess === 'function') {
@@ -114,7 +130,7 @@ export default function LoginScreen({ onClose, onLoginSuccess }) {
       return;
     }
 
-    if (!expoOwner) {
+    if (isExpoGo && !expoOwner) {
       Alert.alert(
         'Thiếu Expo owner',
         'File app.json cần thêm expo.owner (username Expo) để tạo redirect URL dạng https://auth.expo.io/@username/AppGoiY.\n\nChạy: npx expo whoami để lấy username.'
@@ -122,7 +138,7 @@ export default function LoginScreen({ onClose, onLoginSuccess }) {
       return;
     }
 
-    if (!googleRedirectUri.startsWith('https://auth.expo.io/')) {
+    if (isExpoGo && !googleRedirectUri.startsWith('https://auth.expo.io/')) {
       Alert.alert(
         'Redirect URI sai',
         `Redirect hiện tại: ${googleRedirectUri}\n\nCần dạng https://auth.expo.io/@${expoOwner}/${expoSlug}`
@@ -132,10 +148,17 @@ export default function LoginScreen({ onClose, onLoginSuccess }) {
 
     try {
       setLoadingType('google');
-      const oauthResult = await promptGoogleLogin({ useProxy: true });
+      const oauthResult = await promptGoogleLogin(
+        isExpoGo
+          ? { useProxy: true, showInRecents: true }
+          : { showInRecents: true }
+      );
       if (oauthResult.type === 'error') {
         const details = oauthResult.params?.error_description || oauthResult.error?.message || oauthResult.params?.error;
-        Alert.alert('Google OAuth lỗi', details || 'Yeu cau OAuth khong hop le. Kiem tra redirect URI va client ID.');
+        Alert.alert(
+          'Google OAuth lỗi',
+          `${details || 'Yêu cầu OAuth không hợp lệ.'}\n\nredirectUri runtime: ${googleRedirectUri}`
+        );
         return;
       }
 
@@ -151,10 +174,12 @@ export default function LoginScreen({ onClose, onLoginSuccess }) {
 
       const response = await loginWithGoogle({
         idToken,
+        rememberLogin,
       });
 
       if (typeof onLoginSuccess === 'function') {
         onLoginSuccess(response?.user || null);
+        return;
       }
 
       Alert.alert('Google login OK', `Xin chào ${response?.user?.fullName || response?.user?.email}`);
@@ -211,6 +236,18 @@ export default function LoginScreen({ onClose, onLoginSuccess }) {
             style={styles.forgotWrap}
           >
             <Text style={styles.forgotText}>Quên mật khẩu?</Text>
+          </Pressable>
+
+          <Pressable
+            onPress={() => setRememberLogin((current) => !current)}
+            style={styles.rememberWrap}
+          >
+            <Feather
+              name={rememberLogin ? 'check-square' : 'square'}
+              size={18}
+              color={rememberLogin ? '#f55f12' : '#98a2b3'}
+            />
+            <Text style={styles.rememberText}>Ghi nhớ đăng nhập</Text>
           </Pressable>
 
           <Pressable
@@ -321,6 +358,17 @@ const styles = StyleSheet.create({
     color: '#f55f12',
     fontSize: 15,
     fontWeight: '700',
+  },
+  rememberWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 16,
+  },
+  rememberText: {
+    color: '#374151',
+    fontSize: 15,
+    fontWeight: '600',
   },
   loginButton: {
     height: 52,

@@ -647,9 +647,6 @@ export default function IngredientSuggestionScreen() {
       </View>
 
       <View style={styles.footerActions}>
-        <Pressable onPress={() => setStep(2)} style={styles.outlineButton}>
-          <Text style={styles.outlineButtonText}>Chỉnh sửa</Text>
-        </Pressable>
         <Pressable onPress={resetFlow} style={[styles.primaryButton, styles.flexButton]}>
           <Text style={styles.primaryButtonText}>Bắt đầu lại</Text>
         </Pressable>

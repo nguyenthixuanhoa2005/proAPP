@@ -1,10 +1,16 @@
-import { clearAuthTokens, getAuthTokens, request, setAuthTokens } from './client';
+import {
+	authRequest,
+	clearAuthTokens,
+	getAuthTokens,
+	request,
+	setAuthTokens,
+} from './client';
 
 const defaultHeaders = {
 	'Content-Type': 'application/json',
 };
 
-export const loginWithEmail = async ({ email, password }) => {
+export const loginWithEmail = async ({ email, password, rememberLogin = false }) => {
 	const data = await request('/api/auth/login', {
 		method: 'POST',
 		headers: defaultHeaders,
@@ -14,12 +20,36 @@ export const loginWithEmail = async ({ email, password }) => {
 	await setAuthTokens({
 		accessToken: data.accessToken,
 		refreshToken: data.refreshToken,
+		persist: rememberLogin,
 	});
 
 	return data;
 };
 
-export const loginWithGoogle = async ({ idToken }) => {
+export const fetchCurrentUser = async () => {
+	const data = await authRequest('/api/auth/me', {
+		method: 'GET',
+	});
+
+	return data?.user || null;
+};
+
+export const bootstrapAuthSession = async () => {
+	const { accessToken, refreshToken } = await getAuthTokens();
+	if (!accessToken && !refreshToken) {
+		return null;
+	}
+
+	try {
+		const user = await fetchCurrentUser();
+		return user;
+	} catch (error) {
+		await clearAuthTokens();
+		return null;
+	}
+};
+
+export const loginWithGoogle = async ({ idToken, rememberLogin = false }) => {
 	const data = await request('/api/auth/social/google', {
 		method: 'POST',
 		headers: defaultHeaders,
@@ -29,6 +59,7 @@ export const loginWithGoogle = async ({ idToken }) => {
 	await setAuthTokens({
 		accessToken: data.accessToken,
 		refreshToken: data.refreshToken,
+		persist: rememberLogin,
 	});
 
 	return data;
